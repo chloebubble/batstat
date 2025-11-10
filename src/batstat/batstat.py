@@ -14,7 +14,7 @@ import re
 import sys
 import argparse
 from datetime import datetime
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 
 class Colors:
@@ -238,17 +238,6 @@ def center_text(text: str, width: int) -> str:
     return " " * left_pad + text + " " * right_pad
 
 
-def create_header_line(title: str, width: int) -> str:
-    """Create a header line with title"""
-    base = f"─ {title} "
-    base_len = len(base)
-
-    if base_len >= width:
-        return base[:width]
-
-    filler_len = width - base_len
-    return base + "─" * filler_len
-
 
 def format_current_draw(amperage: int) -> Tuple[str, str]:
     """Format current draw information"""
@@ -265,6 +254,64 @@ def truncate_text(text: str, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[:max_length - 3] + "..."
+
+
+def pad_visible(text: str, width: int) -> str:
+    """Pad text with spaces accounting for ANSI escape codes"""
+    visible_len = len(strip_ansi_codes(text))
+    if visible_len >= width:
+        return text
+    return text + " " * (width - visible_len)
+
+
+class AsciiRenderer:
+    """Utility for rendering consistently aligned ASCII boxes"""
+
+    def __init__(self, inner_width: int = 44):
+        self.inner_width = inner_width
+        self.lines: List[str] = []
+
+    def horizontal_rule(self, color: Optional[str] = None, char: str = "─") -> None:
+        border = color if color is not None else Colors.GRAY
+        self.lines.append(f"{border}+{char * self.inner_width}+{Colors.RESET}")
+
+    def framed_line(self, content: str, border_color: Optional[str] = None) -> None:
+        border = border_color if border_color is not None else Colors.GRAY
+        padded = pad_visible(content, self.inner_width)
+        self.lines.append(f"{border}|{padded}{border}|{Colors.RESET}")
+
+    def blank_line(self) -> None:
+        self.lines.append("")
+
+    def banner(self, title: str) -> None:
+        self.horizontal_rule(Colors.CYAN)
+        banner_text = center_text(
+            f"{Colors.PURPLE}🔋 {title} 🔋{Colors.CYAN}",
+            self.inner_width
+        )
+        self.framed_line(banner_text, Colors.CYAN)
+        self.horizontal_rule(Colors.CYAN)
+        self.blank_line()
+
+    def section(self, title: str, rows: List[str], accent: Optional[str] = None) -> None:
+        accent_color = accent if accent is not None else Colors.GRAY
+        self.horizontal_rule(accent_color)
+        self.framed_line(f" {title}", accent_color)
+        self.horizontal_rule(accent_color)
+        for row in rows:
+            self.framed_line(row)
+        self.horizontal_rule()
+        self.blank_line()
+
+    def render(self) -> None:
+        for line in self.lines:
+            print(line)
+
+
+def format_kv(label: str, value: str, label_width: int = 10) -> str:
+    """Format label/value pairs to keep alignment consistent"""
+    label_text = f"{label:<{label_width}}"
+    return f" {label_text}: {value}"
 
 
 def display_simple_battery_info(battery: BatteryData) -> None:
@@ -334,174 +381,106 @@ def display_battery_status(verbose: bool = True, json_output: bool = False) -> N
     status_icon, status_text = get_battery_status(battery)
     time_str = format_time_remaining(battery)
 
-    # Temperature calculations
     temp_celsius = battery.get_float('temperature') / 100.0
     temp_fahrenheit = temp_celsius * 9.0 / 5.0 + 32.0
-
-    # Voltage calculation
     voltage_volts = battery.get_float('voltage') / 1000.0
+    amperage = battery.get_int('amperage')
+    current_text, current_color = format_current_draw(amperage)
 
-    # Get colors
     battery_color = get_battery_color(percentage)
     health_color = get_health_color(health_percentage)
 
-    # Layout constants
-    inner_width = 44
-    blank_inner = " " * inner_width
-    solid_line = "-" * inner_width
+    renderer = AsciiRenderer(inner_width=44)
+    renderer.banner("BATTERY STATUS")
 
-    # Display header
-    print()
-    header_title = center_text(f"{Colors.PURPLE}🔋 BATTERY STATUS 🔋{Colors.CYAN}", inner_width)
-    print(f"{Colors.CYAN}+{solid_line}+{Colors.RESET}")
-    print(f"{Colors.CYAN}|{header_title}|{Colors.RESET}")
-    print(f"{Colors.CYAN}+{solid_line}+{Colors.RESET}")
-    print()
+    status_value = f"{status_text:<10} {percentage:>3.0f}% {status_icon}"
+    renderer.section(
+        "Battery Level",
+        [
+            format_kv("Status", f"{battery_color}{status_value}{Colors.RESET}"),
+            "",
+            f"{battery_color}{create_progress_bar(percentage, renderer.inner_width)}{Colors.RESET}"
+        ],
+        accent=Colors.GRAY
+    )
 
-    # Battery Level Section
-    battery_header = create_header_line("Battery Level", inner_width)
-    print(f"{Colors.GRAY}+{battery_header}+{Colors.RESET}")
-
-    # Status line
-    status_label = " Status:    "
-    status_value = f"{status_text:<10} {percentage:>3.0f}% {status_icon:>3s}"
-    status_line = f"{status_label}{battery_color}{status_value}{Colors.GRAY}"
-    status_line += " " * (inner_width - len(status_label + status_value))
-    print(f"{Colors.GRAY}|{status_line}|{Colors.RESET}")
-
-    # Empty line
-    print(f"{Colors.GRAY}|{blank_inner}|{Colors.RESET}")
-
-    # Progress bar
-    progress_bar = create_progress_bar(percentage, inner_width)
-    print(f"{Colors.GRAY}|{battery_color}{progress_bar}{Colors.GRAY}|{Colors.RESET}")
-    print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
-    print()
-
-    # Battery Health Section
-    health_header = create_header_line("Battery Health", inner_width)
-    print(f"{Colors.CYAN}+{health_header}+{Colors.RESET}")
-
-    # Health line
-    health_label = " Health:    "
     max_cap = battery.get_int('max_capacity')
     design_cap = battery.get_int('design_capacity')
-    health_value = f"{health_percentage:>3.0f}% ({max_cap} / {design_cap} mAh)"
-    health_line = f"{health_label}{health_color}{health_value}{Colors.GRAY}"
-    health_line += " " * (inner_width - len(health_label + health_value))
-    print(f"{Colors.GRAY}|{health_line}|{Colors.RESET}")
-
-    # Cycles line
-    cycles_label = " Cycles:    "
     cycles = battery.get_int('cycle_count')
-    cycles_value = str(cycles)
-    cycles_line = f"{cycles_label}{Colors.BLUE}{cycles_value}{Colors.GRAY}"
-    cycles_line += " " * (inner_width - len(cycles_label + cycles_value))
-    print(f"{Colors.GRAY}|{cycles_line}|{Colors.RESET}")
 
-    print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
-    print()
+    renderer.section(
+        "Battery Health",
+        [
+            format_kv(
+                "Health",
+                f"{health_color}{health_percentage:>3.0f}%{Colors.RESET} ({max_cap} / {design_cap} mAh)"
+            ),
+            format_kv("Cycles", f"{Colors.BLUE}{cycles}{Colors.RESET}")
+        ],
+        accent=Colors.CYAN
+    )
 
-    # Power Details Section
-    power_header = create_header_line("Power Details", inner_width)
-    print(f"{Colors.PURPLE}+{power_header}+{Colors.RESET}")
+    renderer.section(
+        "Power Details",
+        [
+            format_kv("Voltage", f"{Colors.YELLOW}{voltage_volts:>6.2f}V{Colors.RESET}"),
+            format_kv("Current", f"{current_color}{current_text}{Colors.RESET}"),
+            format_kv(
+                "Temp",
+                f"{Colors.CYAN}{temp_celsius:.1f}°C{Colors.RESET} / {temp_fahrenheit:.1f}°F"
+            )
+        ],
+        accent=Colors.PURPLE
+    )
 
-    # Voltage line
-    voltage_label = " Voltage:   "
-    voltage_value = f"{voltage_volts:>6.2f}V"
-    voltage_line = f"{voltage_label}{Colors.YELLOW}{voltage_value}{Colors.GRAY}"
-    voltage_line += " " * (inner_width - len(voltage_label + voltage_value))
-    print(f"{Colors.GRAY}|{voltage_line}|{Colors.RESET}")
-
-    # Current line
-    current_label = " Current:   "
-    amperage = battery.get_int('amperage')
-    current_text, current_color = format_current_draw(amperage)
-    current_line = f"{current_label}{current_color}{current_text}{Colors.GRAY}"
-    current_line += " " * (inner_width - len(current_label + current_text))
-    print(f"{Colors.GRAY}|{current_line}|{Colors.RESET}")
-
-    # Temperature line
-    temp_label = " Temp:      "
-    temp_value_full = f"{temp_celsius:.1f}°C / {temp_fahrenheit:.1f}°F"
-    temp_line = f"{temp_label}{Colors.CYAN}{temp_celsius:.1f}°C{Colors.GRAY} / {temp_fahrenheit:.1f}°F"
-    temp_line += " " * (inner_width - len(temp_label + temp_value_full))
-    print(f"{Colors.GRAY}|{temp_line}|{Colors.RESET}")
-
-    print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
-    print()
-
-    # Time Remaining Section (only if valid time)
     if time_str not in ("Calculating...", "Almost full"):
-        time_header = create_header_line("Time Remaining", inner_width)
-        print(f"{Colors.GREEN}+{time_header}+{Colors.RESET}")
+        renderer.section(
+            "Time Remaining",
+            [format_kv("Estimate", f"{Colors.GREEN}{time_str}{Colors.RESET}")],
+            accent=Colors.GREEN
+        )
 
-        time_content = f" {time_str}"
-        time_line = f"{time_content}{Colors.GREEN}{time_str}{Colors.GRAY}"
-        time_line += " " * (inner_width - len(time_content))
-        time_line = time_line.replace(time_str, f"{Colors.GREEN}{time_str}{Colors.GRAY}")
-        print(f"{Colors.GRAY}|{' ' + time_str.ljust(inner_width - 1)}|{Colors.RESET}")
-        print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
-        print()
-
-    # Power Adapter Section (if connected)
     external_connected = battery.get_str('external_connected') == "Yes"
-
-    # Use charger info from system_profiler if available, fallback to ioreg data
     charger_name = charger_info.get('charger_name') or battery.get_str('adapter_name')
     charger_wattage = charger_info.get('charger_wattage')
 
+    value_limit = renderer.inner_width - 13  # width minus label + padding
+
     if external_connected and charger_name:
-        adapter_header = create_header_line("Power Adapter", inner_width)
-        print(f"{Colors.BLUE}+{adapter_header}+{Colors.RESET}")
-
-        # Adapter type
-        adapter_label = " Type:      "
-        adapter_display = truncate_text(charger_name, inner_width - len(adapter_label))
-        adapter_line = f"{adapter_label}{Colors.BLUE}{adapter_display}{Colors.GRAY}"
-        adapter_line += " " * (inner_width - len(adapter_label + adapter_display))
-        print(f"{Colors.GRAY}|{adapter_line}|{Colors.RESET}")
-
-        # Charger wattage from system_profiler (more accurate)
+        adapter_display = truncate_text(charger_name, value_limit)
+        watts_value = None
         if charger_wattage:
-            watts_label = " Power:     "
             watts_value = f"{charger_wattage}W"
-            watts_line = f"{watts_label}{Colors.YELLOW}{watts_value}{Colors.GRAY}"
-            watts_line += " " * (inner_width - len(watts_label + watts_value))
-            print(f"{Colors.GRAY}|{watts_line}|{Colors.RESET}")
-        # Fallback to ioreg adapter watts
         else:
             adapter_watts = battery.get_int('adapter_watts')
             if adapter_watts > 0:
-                watts_label = " Power:     "
                 watts_value = f"{adapter_watts}W"
-                watts_line = f"{watts_label}{Colors.YELLOW}{watts_value}{Colors.GRAY}"
-                watts_line += " " * (inner_width - len(watts_label + watts_value))
-                print(f"{Colors.GRAY}|{watts_line}|{Colors.RESET}")
 
-        print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
-        print()
+        adapter_rows = [
+            format_kv("Type", f"{Colors.BLUE}{adapter_display}{Colors.RESET}")
+        ]
 
-    # System Info Section
-    system_header = create_header_line("System Info", inner_width)
-    print(f"{Colors.GRAY}+{system_header}+{Colors.RESET}")
+        if watts_value:
+            adapter_rows.append(
+                format_kv("Power", f"{Colors.YELLOW}{watts_value}{Colors.RESET}")
+            )
 
-    # Serial number
-    serial_label = " Serial:    "
+        renderer.section("Power Adapter", adapter_rows, accent=Colors.BLUE)
+
     serial = battery.get_str('serial')
-    serial_display = truncate_text(serial, inner_width - len(serial_label))
-    serial_line = f"{serial_label}{Colors.GRAY}{serial_display}{Colors.GRAY}"
-    serial_line += " " * (inner_width - len(serial_label + serial_display))
-    print(f"{Colors.GRAY}|{serial_line}|{Colors.RESET}")
-
-    # Last updated
-    updated_label = " Updated:   "
+    serial_display = truncate_text(serial, value_limit)
     updated_at = datetime.now().strftime("%H:%M:%S")
-    updated_line = f"{updated_label}{Colors.GRAY}{updated_at}{Colors.GRAY}"
-    updated_line += " " * (inner_width - len(updated_label + updated_at))
-    print(f"{Colors.GRAY}|{updated_line}|{Colors.RESET}")
 
-    print(f"{Colors.GRAY}+{solid_line}+{Colors.RESET}")
+    renderer.section(
+        "System Info",
+        [
+            format_kv("Serial", serial_display),
+            format_kv("Updated", updated_at)
+        ]
+    )
+
+    print()
+    renderer.render()
     print()
 
 

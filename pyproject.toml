@@ -11,9 +11,8 @@ dependencies = [
 [project.scripts]
 batstat = "batstat.batstat:main"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.uv.sources]
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
