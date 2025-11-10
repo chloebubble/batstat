@@ -1,0 +1,359 @@
+#!/usr/bin/env fish
+
+function __batstat_header_line -a title inner_width
+    if test -z "$inner_width"
+        set inner_width 44
+    end
+    set base "─ $title "
+    set base_len (string length -- "$base")
+    if test $base_len -gt $inner_width
+        set base (string sub -l $inner_width -- "$base")
+        echo "$base"
+        return
+    end
+    set filler_len (math "$inner_width - $base_len")
+    if test $filler_len -lt 0
+        set filler_len 0
+    end
+    set filler (string repeat -n $filler_len '─')
+    echo "$base$filler"
+end
+
+function __batstat_center_text -a text inner_width
+    if test -z "$inner_width"
+        set inner_width 44
+    end
+    set text_len (string length -- "$text")
+    set available (math "$inner_width - $text_len")
+    if test $available -lt 0
+        set available 0
+    end
+    set left_pad (math "$available / 2")
+    set right_pad (math "$available - $left_pad")
+    set left (string repeat -n $left_pad ' ')
+    set right (string repeat -n $right_pad ' ')
+    echo "$left$text$right"
+end
+
+function batstat
+    set battery_data (ioreg -lrn AppleSmartBattery 2>/dev/null)
+    if test -z "$battery_data"
+        echo "❌ Unable to read battery information"
+        return 1
+    end
+
+    set current_capacity (echo "$battery_data" | grep '"CurrentCapacity" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set max_capacity (echo "$battery_data" | grep '"MaxCapacity" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set design_capacity (echo "$battery_data" | grep '"DesignCapacity" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set cycle_count (echo "$battery_data" | grep '"CycleCount" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set temperature (echo "$battery_data" | grep '"Temperature" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set voltage (echo "$battery_data" | grep '"Voltage" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//')
+    set amperage (echo "$battery_data" | grep '"Amperage" = ' | sed 's/.*= -?[0-9]*//' | sed 's/[^0-9-].*//')
+    set is_charging (echo "$battery_data" | grep '"IsCharging" = ' | sed 's/.*= \([A-Za-z]*\).*/\1/')
+    set external_connected (echo "$battery_data" | grep '"ExternalConnected" = ' | sed 's/.*= \([A-Za-z]*\).*/\1/')
+    set fully_charged (echo "$battery_data" | grep '"FullyCharged" = ' | sed 's/.*= \([A-Za-z]*\).*/\1/')
+    set time_remaining (echo "$battery_data" | grep '"TimeRemaining" = ' | sed 's/.*= -?[0-9]*//' | sed 's/[^0-9-].*//')
+    set serial (echo "$battery_data" | grep '"Serial" = ' | sed 's/.*= "\([A-Za-z0-9]*\)".*/\1/')
+    set adapter_name (echo "$battery_data" | grep '"Name" = ' | sed 's/.*= "\([A-Za-z0-9 -]*\)".*/\1/' | head -1)
+    set adapter_watts (echo "$battery_data" | grep '"Watts" = ' | sed 's/.*= [^0-9]*//' | sed 's/[^0-9].*//' | head -1)
+
+    set percentage (math "$current_capacity * 100 / $max_capacity")
+    set temp_celsius (math "$temperature / 100")
+    set temp_fahrenheit (math "$temp_celsius * 9 / 5 + 32")
+    set voltage_volts (math "$voltage / 1000")
+    set health_percent (math "$max_capacity * 100 / $design_capacity")
+
+    set status_icon "🔋"
+    set status_text "Discharging"
+
+    if test "$is_charging" = "Yes"
+        set status_icon "⚡"
+        set status_text "Charging"
+    else if test "$external_connected" = "Yes" -a "$fully_charged" = "Yes"
+        set status_icon "🔌"
+        set status_text "Fully Charged"
+    else if test "$external_connected" = "Yes"
+        set status_icon "🔌"
+        set status_text "Not Charging"
+    end
+
+    set time_str "Calculating..."
+    if test "$time_remaining" != "65535" -a "$time_remaining" != "-1" -a "$time_remaining" != ""
+        if test "$time_remaining" -gt 0
+            set hours (math "$time_remaining / 60")
+            set minutes (math "$time_remaining % 60")
+            set time_str (printf "%dh %dm" $hours $minutes)
+        else
+            set time_str "Almost full"
+        end
+    else if test "$is_charging" != "Yes"
+        set time_str "Calculating..."
+    end
+
+    set color_reset (set_color normal)
+    set color_green (set_color green)
+    set color_yellow (set_color yellow)
+    set color_orange (set_color bryellow)
+    set color_red (set_color red)
+    set color_blue (set_color blue)
+    set color_purple (set_color purple)
+    set color_cyan (set_color cyan)
+    set color_gray (set_color 666)
+
+    set inner_width 44
+    set blank_inner (string repeat -n $inner_width ' ')
+    set solid_line (string repeat -n $inner_width '─')
+
+    set battery_color $color_green
+    if test $percentage -le 20
+        set battery_color $color_red
+    else if test $percentage -le 40
+        set battery_color $color_orange
+    else if test $percentage -le 60
+        set battery_color $color_yellow
+    end
+
+    set health_color $color_green
+    if test $health_percent -le 60
+        set health_color $color_red
+    else if test $health_percent -le 80
+        set health_color $color_yellow
+    end
+
+    echo
+    set header_title (__batstat_center_text "🔋 BATTERY STATUS 🔋" $inner_width)
+    set header_title (string replace -- "🔋 BATTERY STATUS 🔋" "$color_purple🔋 BATTERY STATUS 🔋$color_cyan" $header_title)
+    printf "%s╭%s╮%s\n" $color_cyan $solid_line $color_reset
+    printf "%s│%s│%s\n" $color_cyan $header_title $color_reset
+    printf "%s╰%s╯%s\n\n" $color_cyan $solid_line $color_reset
+
+    set battery_header (__batstat_header_line "Battery Level" $inner_width)
+    printf "%s┌%s┐%s\n" $color_gray $battery_header $color_reset
+
+    set status_label " Status:    "
+    set status_value_plain (printf "%-10s %3d%% %3s" "$status_text" "$percentage" "$status_icon")
+    set status_value_colored (printf "%s%-10s%s %s%3d%%%s %s%3s%s" \
+        "$battery_color" "$status_text" "$color_gray" \
+        "$battery_color" "$percentage" "$color_gray" \
+        "$battery_color" "$status_icon" "$color_gray")
+    set status_used (string length -- "$status_label$status_value_plain")
+    set status_pad_len (math "$inner_width - $status_used")
+    if test $status_pad_len -lt 0
+        set status_pad_len 0
+    end
+    set status_padding (string repeat -n $status_pad_len ' ')
+    printf "%s│%s" $color_gray "$status_label"
+    printf "%s" "$status_value_colored"
+    printf "%s%s│%s\n" $color_gray "$status_padding" $color_reset
+
+    printf "%s│%s│%s\n" $color_gray "$blank_inner" $color_reset
+
+    set bar_length $inner_width
+    set filled_length (math "floor($percentage * $bar_length / 100)")
+    set empty_length (math "$bar_length - $filled_length")
+
+    set progress_bar ""
+    if test $filled_length -gt 0
+        for i in (seq 1 $filled_length)
+            set progress_bar $progress_bar"█"
+        end
+    end
+    if test $empty_length -gt 0
+        for i in (seq 1 $empty_length)
+            set progress_bar $progress_bar"░"
+        end
+    end
+
+    printf "%s│%s%s│%s\n" $color_gray "$battery_color$progress_bar" $color_gray $color_reset
+    printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+
+    set health_header (__batstat_header_line "Battery Health" $inner_width)
+    printf "%s┌%s┐%s\n" $color_cyan $health_header $color_reset
+
+    set health_label " Health:    "
+    set health_value_plain (printf "%3d%% (%d / %d mAh)" "$health_percent" "$max_capacity" "$design_capacity")
+    set health_used (string length -- "$health_label$health_value_plain")
+    set health_pad_len (math "$inner_width - $health_used")
+    if test $health_pad_len -lt 0
+        set health_pad_len 0
+    end
+    set health_padding (string repeat -n $health_pad_len ' ')
+    set health_value_colored (printf "%s%3d%%%s (%d / %d mAh)" "$health_color" "$health_percent" $color_gray "$max_capacity" "$design_capacity")
+    printf "%s│%s" $color_gray "$health_label"
+    printf "%s" "$health_value_colored"
+    printf "%s%s│%s\n" $color_gray "$health_padding" $color_reset
+
+    set cycles_label " Cycles:    "
+    set cycles_value_plain "$cycle_count"
+    set cycles_used (string length -- "$cycles_label$cycles_value_plain")
+    set cycles_pad_len (math "$inner_width - $cycles_used")
+    if test $cycles_pad_len -lt 0
+        set cycles_pad_len 0
+    end
+    set cycles_padding (string repeat -n $cycles_pad_len ' ')
+    set cycles_value_colored (printf "%s%s" $color_blue "$cycle_count")
+    printf "%s│%s" $color_gray "$cycles_label"
+    printf "%s" "$cycles_value_colored"
+    printf "%s%s│%s\n" $color_gray "$cycles_padding" $color_reset
+
+    printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+
+    set power_header (__batstat_header_line "Power Details" $inner_width)
+    printf "%s┌%s┐%s\n" $color_purple $power_header $color_reset
+
+    set voltage_label " Voltage:   "
+    set voltage_value_plain (printf "%6.2fV" "$voltage_volts")
+    set voltage_used (string length -- "$voltage_label$voltage_value_plain")
+    set voltage_pad_len (math "$inner_width - $voltage_used")
+    if test $voltage_pad_len -lt 0
+        set voltage_pad_len 0
+    end
+    set voltage_padding (string repeat -n $voltage_pad_len ' ')
+    set voltage_value_colored (printf "%s%6.2fV" $color_yellow "$voltage_volts")
+    printf "%s│%s" $color_gray "$voltage_label"
+    printf "%s" "$voltage_value_colored"
+    printf "%s%s│%s\n" $color_gray "$voltage_padding" $color_reset
+
+    set current_label " Current:   "
+    if test "$amperage" != "0" -a "$amperage" != ""
+        set current_ma "$amperage"
+        if test $current_ma -gt 0
+            set current_value_plain (printf "+%dmA (charging)" $current_ma)
+            set current_value_colored (printf "%s+%dmA%s (charging)" $color_green $current_ma $color_gray)
+        else
+            set draw (math "$current_ma * -1")
+            set current_value_plain (printf "%dmA (drawing)" $draw)
+            set current_value_colored (printf "%s%dmA%s (drawing)" $color_orange $draw $color_gray)
+        end
+    else
+        set current_value_plain "0mA (idle)"
+        set current_value_colored (printf "%s0mA%s (idle)" $color_gray $color_gray)
+    end
+    set current_used (string length -- "$current_label$current_value_plain")
+    set current_pad_len (math "$inner_width - $current_used")
+    if test $current_pad_len -lt 0
+        set current_pad_len 0
+    end
+    set current_padding (string repeat -n $current_pad_len ' ')
+    printf "%s│%s" $color_gray "$current_label"
+    printf "%s" "$current_value_colored"
+    printf "%s%s│%s\n" $color_gray "$current_padding" $color_reset
+
+    set temp_label " Temp:      "
+    set temp_value_plain (printf "%.1f°C / %.1f°F" "$temp_celsius" "$temp_fahrenheit")
+    set temp_used (string length -- "$temp_label$temp_value_plain")
+    set temp_pad_len (math "$inner_width - $temp_used")
+    if test $temp_pad_len -lt 0
+        set temp_pad_len 0
+    end
+    set temp_padding (string repeat -n $temp_pad_len ' ')
+    set temp_value_colored (printf "%s%.1f°C%s / %.1f°F" $color_cyan "$temp_celsius" $color_gray "$temp_fahrenheit")
+    printf "%s│%s" $color_gray "$temp_label"
+    printf "%s" "$temp_value_colored"
+    printf "%s%s│%s\n" $color_gray "$temp_padding" $color_reset
+
+    printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+
+    if test "$time_str" != "Calculating..." -a "$time_str" != "Almost full"
+        set time_header (__batstat_header_line "Time Remaining" $inner_width)
+        printf "%s┌%s┐%s\n" $color_green $time_header $color_reset
+
+        set time_content " $time_str"
+        set time_len (string length -- "$time_content")
+        set time_pad_len (math "$inner_width - $time_len")
+        if test $time_pad_len -lt 0
+            set time_pad_len 0
+        end
+        set time_line "$time_content"(string repeat -n $time_pad_len ' ')
+        set time_line (string replace -- "$time_str" "$color_green$time_str" $time_line)
+        printf "%s│%s│%s\n" $color_gray "$time_line" $color_reset
+        printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+    end
+
+    if test "$external_connected" = "Yes" -a -n "$adapter_name"
+        set adapter_header (__batstat_header_line "Power Adapter" $inner_width)
+        printf "%s┌%s┐%s\n" $color_blue $adapter_header $color_reset
+
+        set adapter_label " Type:      "
+        set adapter_label_len (string length -- "$adapter_label")
+        set adapter_available (math "$inner_width - $adapter_label_len")
+        set adapter_value_plain "$adapter_name"
+        if test (string length -- "$adapter_value_plain") -gt $adapter_available
+            set trim_len (math "$adapter_available - 3")
+            if test $trim_len -lt 0
+                set trim_len 0
+            end
+            set adapter_value_plain (string sub -l $trim_len -- "$adapter_value_plain")"..."
+        end
+        set adapter_used (string length -- "$adapter_label$adapter_value_plain")
+        set adapter_pad_len (math "$inner_width - $adapter_used")
+        if test $adapter_pad_len -lt 0
+            set adapter_pad_len 0
+        end
+        set adapter_padding (string repeat -n $adapter_pad_len ' ')
+        set adapter_value_colored (printf "%s%s" $color_blue "$adapter_value_plain")
+        printf "%s│%s" $color_gray "$adapter_label"
+        printf "%s" "$adapter_value_colored"
+        printf "%s%s│%s\n" $color_gray "$adapter_padding" $color_reset
+
+        if test -n "$adapter_watts" -a "$adapter_watts" != ""
+            set watts_label " Power:     "
+            set watts_value_plain (printf "%dW" "$adapter_watts")
+            set watts_used (string length -- "$watts_label$watts_value_plain")
+            set watts_pad_len (math "$inner_width - $watts_used")
+            if test $watts_pad_len -lt 0
+                set watts_pad_len 0
+            end
+            set watts_padding (string repeat -n $watts_pad_len ' ')
+            set watts_value_colored (printf "%s%dW" $color_yellow "$adapter_watts")
+            printf "%s│%s" $color_gray "$watts_label"
+            printf "%s" "$watts_value_colored"
+            printf "%s%s│%s\n" $color_gray "$watts_padding" $color_reset
+        end
+
+        printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+    end
+
+    set system_header (__batstat_header_line "System Info" $inner_width)
+    printf "%s┌%s┐%s\n" $color_gray $system_header $color_reset
+
+    set serial_label " Serial:    "
+    set serial_label_len (string length -- "$serial_label")
+    set serial_available (math "$inner_width - $serial_label_len")
+    set serial_display "$serial"
+    if test (string length -- "$serial_display") -gt $serial_available
+        set serial_trim (math "$serial_available - 3")
+        if test $serial_trim -lt 0
+            set serial_trim 0
+        end
+        set serial_display (string sub -l $serial_trim -- "$serial_display")"..."
+    end
+    set serial_used (string length -- "$serial_label$serial_display")
+    set serial_pad_len (math "$inner_width - $serial_used")
+    if test $serial_pad_len -lt 0
+        set serial_pad_len 0
+    end
+    set serial_padding (string repeat -n $serial_pad_len ' ')
+    printf "%s│%s" $color_gray "$serial_label"
+    printf "%s" "$serial_display"
+    printf "%s%s│%s\n" $color_gray "$serial_padding" $color_reset
+
+    set updated_label " Updated:   "
+    set updated_at (date '+%H:%M:%S')
+    set updated_value_plain "$updated_at"
+    set updated_used (string length -- "$updated_label$updated_value_plain")
+    set updated_pad_len (math "$inner_width - $updated_used")
+    if test $updated_pad_len -lt 0
+        set updated_pad_len 0
+    end
+    set updated_padding (string repeat -n $updated_pad_len ' ')
+    printf "%s│%s" $color_gray "$updated_label"
+    printf "%s" "$updated_value_plain"
+    printf "%s%s│%s\n" $color_gray "$updated_padding" $color_reset
+
+    printf "%s└%s┘%s\n\n" $color_gray $solid_line $color_reset
+end
+
+if test (basename (status -f)) = "batstat"
+    batstat $argv
+end
