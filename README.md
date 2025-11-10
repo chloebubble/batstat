@@ -31,33 +31,41 @@ uv install -e .
 Display full battery status with colors and formatting:
 
 ```bash
-uv run python src/batstat/batstat.py
+# From the repo (no install):
+uv run -m batstat
+
+# After editable install or from PyPI:
+uvx batstat
 ```
 
 ### Output modes
 
 **Simple output** (script-friendly):
 ```bash
-uv run python src/batstat/batstat.py -s
+uv run -m batstat -s
+uvx batstat -s
 ```
 
 **JSON output** (for programmatic use):
 ```bash
-uv run python src/batstat/batstat.py -j
+uv run -m batstat -j
+uvx batstat -j
 ```
 
 This method uses both `ioreg` for battery data and `system_profiler` for accurate charger information including wattage and charger name.
 
 **Disable colors** (for non-interactive terminals):
 ```bash
-uv run python src/batstat/batstat.py --no-color
+uv run -m batstat --no-color
+uvx batstat --no-color
 ```
 
 ### Help
 
 Show all available options:
 ```bash
-uv run python src/batstat/batstat.py --help
+uv run -m batstat --help
+uvx batstat --help
 ```
 
 ## Output Information
@@ -123,7 +131,7 @@ The project uses uv for dependency management. To modify or extend:
 uv sync
 
 # Run the script
-uv run python src/batstat/batstat.py
+uv run -m batstat
 
 # Install in development mode
 uv install -e .

@@ -13,3 +13,7 @@ batstat = "batstat.batstat:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

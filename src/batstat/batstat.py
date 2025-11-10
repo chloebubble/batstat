@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.11"
+# dependencies = ["psutil>=7.1.3"]
+# ///
 """
 Battery Status Script - batstat
 A beautiful battery status display for macOS using ioreg
