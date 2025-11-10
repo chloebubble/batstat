@@ -4,7 +4,7 @@ A battery status display for macOS that provides detailed information about your
 
 ## Requirements
 
-- macOS (uses `ioreg` to read battery information)
+- macOS (uses `ioreg` and `system_profiler` for battery information)
 - Python 3.11+
 - uv (for package management)
 
@@ -103,8 +103,10 @@ The `-j/--json` option outputs structured data:
   "amperage": 2155,
   "time_remaining": "1h 34m",
   "serial": "BATTERY_SERIAL",
-  "adapter_name": "USB-C Power Adapter",
-  "adapter_watts": 87,
+  "adapter_name": "",
+  "adapter_watts": 0,
+  "charger_name": "61W USB-C Power Adapter",
+  "charger_wattage": 60,
   "is_charging": true,
   "external_connected": true,
   "fully_charged": false,
@@ -127,11 +129,30 @@ uv run python src/batstat/batstat.py
 uv install -e .
 ```
 
+## Project Structure
+
+```
+batstat/
+├── src/batstat/          # Python package
+│   ├── __init__.py       # Package initialization
+│   └── batstat.py        # Main script
+├── old/                  # Legacy scripts
+│   ├── batstat           # Original fish script
+│   ├── batstat.fish      # Fish function version
+│   └── batstat.py.backup # Python backup
+├── pyproject.toml        # Project configuration
+└── README.md            # This file
+```
+
 ## Migration from Fish Script
 
 This Python version replaces the original `batstat.fish` script with:
 - More robust error handling
-- Multiple output formats
-- Better data parsing
+- Multiple output formats (default, simple, JSON)
+- Better data parsing using both `ioreg` and `system_profiler`
+- Accurate charger wattage detection
 - Package management with uv
 - Type hints and cleaner code structure
+- Proper ASCII formatting for universal compatibility
+
+The original fish script and early Python versions are preserved in the `old/` directory for reference.
