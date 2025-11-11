@@ -137,24 +137,6 @@ uv run -m batstat
 uv install -e .
 ```
 
-### Fish helper (`gacp`)
-
-The repo ships with a small Fish helper that stages, commits, and pushes with optional auto-generated messages.
-
-1. Symlink it into your Fish functions directory:
-   ```bash
-   mkdir -p ~/.config/fish/functions
-   ln -sf (pwd)/scripts/fish/gacp.fish ~/.config/fish/functions/gacp.fish
-   ```
-2. Run `gacp` from any git repo. Flags:
-   - `-a/--auto` (default) builds a Conventional Commit-style message from staged changes.
-   - `-m/--message` supplies your own message; `-e/--edit` opens `$EDITOR` to tweak it.
-   - `-n/--dry-run` previews the git commands; `-v/--verbose` echoes them as they run.
-   - `-r/--remote` and `-b/--branch` override the push target (defaults: `origin` + current branch).
-   - `-y/--yes` skips confirmation prompts; `--no-verify` passes through to git commit/push.
-
-`GACP_REMOTE` and `GACP_BRANCH` environment variables provide defaults for the remote/branch if you use a non-standard setup.
-
 ## Project Structure
 
 ```
