@@ -47,7 +47,8 @@ end
 
 function __gacp_autocommit_message
     set -l staged (command git diff --cached --name-only 2>/dev/null)
-    if test (count $staged) -eq 0
+    set -l staged_count (count $staged)
+    if test $staged_count -eq 0
         echo ""
         return 1
     end
@@ -55,20 +56,51 @@ function __gacp_autocommit_message
     set -l only_docs 1
     set -l only_tests 1
     set -l only_lock 1
+    set -l only_scripts 1
     set -l has_src 0
+    set -l has_docs 0
+    set -l has_tests 0
+    set -l has_ignore 0
+    set -l has_config 0
+    set -l has_scripts 0
 
     for file in $staged
-        if not string match -r '^(README|docs/)' -- $file
+        if string match -r '^(README|docs/)' -- $file
+            set has_docs 1
+        else
             set only_docs 0
         end
-        if not string match -r '^(tests/|test_)' -- $file
+        if string match -r '^(tests/|test_)' -- $file
+            set has_tests 1
+        else
             set only_tests 0
         end
-        if test "$file" != "uv.lock"
+        if test "$file" = "uv.lock"
+            set has_config 1
+        else
             set only_lock 0
+        end
+        if test "$file" = ".gitignore"
+            set has_ignore 1
+            set has_config 1
+        end
+        if test "$file" = "pyproject.toml"
+            set has_config 1
+        end
+        if string match -r '^scripts/' -- $file
+            set has_scripts 1
+        else
+            set only_scripts 0
         end
         if string match -r '^src/' -- $file
             set has_src 1
+        end
+    end
+
+    set -l config_only $has_config
+    if test $config_only -eq 1
+        if test $has_src -eq 1 -o $has_docs -eq 1 -o $has_tests -eq 1 -o $has_scripts -eq 1
+            set config_only 0
         end
     end
 
@@ -114,6 +146,11 @@ function __gacp_autocommit_message
         return 0
     end
 
+    if test $staged_count -eq 1 -a $has_ignore -eq 1
+        echo "chore(git): update .gitignore$summary"
+        return 0
+    end
+
     if test $only_docs -eq 1
         echo "docs: refresh docs$summary"
         return 0
@@ -121,6 +158,16 @@ function __gacp_autocommit_message
 
     if test $only_tests -eq 1
         echo "test: update tests$summary"
+        return 0
+    end
+
+    if test $only_scripts -eq 1
+        echo "chore(scripts): update helpers$summary"
+        return 0
+    end
+
+    if test $config_only -eq 1
+        echo "chore(config): refresh project settings$summary"
         return 0
     end
 
@@ -134,7 +181,89 @@ function __gacp_autocommit_message
         return 0
     end
 
-    echo "chore: update $label$summary"
+    set -l focus_tokens
+    if test $has_src -eq 1
+        contains -- code $focus_tokens; or set focus_tokens $focus_tokens code
+    end
+    if test $has_docs -eq 1
+        contains -- docs $focus_tokens; or set focus_tokens $focus_tokens docs
+    end
+    if test $has_tests -eq 1
+        contains -- tests $focus_tokens; or set focus_tokens $focus_tokens tests
+    end
+    if test $has_scripts -eq 1
+        contains -- scripts $focus_tokens; or set focus_tokens $focus_tokens scripts
+    end
+    if test $has_config -eq 1
+        contains -- config $focus_tokens; or set focus_tokens $focus_tokens config
+    end
+
+    if test (count $focus_tokens) -eq 0
+        set focus_tokens $label
+    end
+
+    set -l readable_tokens
+    for token in $focus_tokens
+        switch $token
+            case code
+                set readable_tokens $readable_tokens "code"
+            case docs
+                set readable_tokens $readable_tokens "docs"
+            case tests
+                set readable_tokens $readable_tokens "tests"
+            case scripts
+                set readable_tokens $readable_tokens "scripts"
+            case config
+                set readable_tokens $readable_tokens "config files"
+            case '*'
+                set readable_tokens $readable_tokens $token
+        end
+    end
+
+    set -l focus_text ""
+    switch (count $readable_tokens)
+        case 1
+            set focus_text $readable_tokens[1]
+        case 2
+            set focus_text "$readable_tokens[1] & $readable_tokens[2]"
+        case '*'
+            set focus_text "multiple areas"
+    end
+
+    set -l scope_tag ""
+    if test (count $focus_tokens) -eq 1
+        set scope_tag $focus_tokens[1]
+        if not string match -r '^[a-z0-9_-]+$' -- $scope_tag
+            set scope_tag ""
+        end
+    end
+
+    set -l type "chore"
+    if test $has_src -eq 1
+        if test $new_src_count -gt 0
+            set type "feat"
+        else
+            set type "fix"
+        end
+    else if test $has_tests -eq 1 -a $has_docs -eq 0 -a $has_scripts -eq 0
+        set type "test"
+    else if test $has_docs -eq 1 -a $has_scripts -eq 0
+        set type "docs"
+    else if test $has_scripts -eq 1 -a $has_src -eq 0 -a $has_docs -eq 0
+        set type "chore"
+    end
+
+    set -l scope_part ""
+    if test -n "$scope_tag"
+        switch $type
+            case docs test
+                # omit scope details
+            case '*'
+                set scope_part "($scope_tag)"
+        end
+    end
+
+    echo "$type$scope_part: update $focus_text$summary"
 end
 
 function __gacp_run
