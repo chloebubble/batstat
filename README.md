@@ -1,10 +1,10 @@
 # batstat
 
-A battery status display for macOS that provides detailed information about your MacBook's battery health and power status.
+A beautiful battery status display for macOS that provides detailed information about your MacBook's battery health and power status.
 
 ## Requirements
 
-- macOS (uses `ioreg` and `system_profiler` for battery information)
+- macOS (uses `pmset` and `system_profiler` for battery information)
 - Python 3.11+
 - uv (for package management)
 
@@ -26,7 +26,7 @@ uv install -e .
 
 ### Fish helper (`gacp`)
 
-The repo ships with a small Fish helper that stages, commits, and pushes with optional auto-generated messages.
+The repo includes a useful Fish helper that stages, commits, and pushes with optional auto-generated messages.
 
 1. Symlink it into your Fish functions directory:
    ```bash
@@ -34,12 +34,12 @@ The repo ships with a small Fish helper that stages, commits, and pushes with op
    ln -sf (pwd)/scripts/fish/gacp.fish ~/.config/fish/functions/gacp.fish
    ```
 2. Run `gacp` from any git repo. Flags:
-   - `-a/--auto` (default) builds a Conventional Commit-style subject from staged changes.
-   - `--codex` asks the Codex CLI to generate the subject; use `--codex-model <model>` to pick a model.
-   - `-m/--message` supplies your own message; `-e/--edit` opens `$EDITOR` to tweak it.
-   - `-n/--dry-run` previews the git commands; `-v/--verbose` echoes them as they run.
-   - `-r/--remote` and `-b/--branch` override the push target (defaults: `origin` + current branch).
-   - `-y/--yes` skips confirmation prompts; `--no-verify` passes through to git commit/push.
+   - `-a/--auto` (default) builds a Conventional Commit-style subject from staged changes
+   - `--codex` asks the Codex CLI to generate the subject; use `--codex-model <model>` to pick a model
+   - `-m/--message` supplies your own message; `-e/--edit` opens `$EDITOR` to tweak it
+   - `-n/--dry-run` previews the git commands; `-v/--verbose` echoes them as they run
+   - `-r/--remote` and `-b/--branch` override the push target (defaults: `origin` + current branch)
+   - `-y/--yes` skips confirmation prompts; `--no-verify` passes through to git commit/push
 
 Environment defaults: `GACP_REMOTE` and `GACP_BRANCH`.
 
@@ -51,95 +51,49 @@ Display full battery status with colors and formatting:
 
 ```bash
 # From the repo (no install):
-uv run -m batstat
+uv run bat
 
-# After editable install or from PyPI:
+# After editable install:
 uvx batstat
 ```
 
-### Output modes
+### Features
 
-**Simple output** (script-friendly):
-```bash
-uv run -m batstat -s
-uvx batstat -s
-```
-
-**JSON output** (for programmatic use):
-```bash
-uv run -m batstat -j
-uvx batstat -j
-```
-
-This method uses both `ioreg` for battery data and `system_profiler` for accurate charger information including wattage and charger name.
-
-**Disable colors** (for non-interactive terminals):
-```bash
-uv run -m batstat --no-color
-uvx batstat --no-color
-```
+- **Rich Display**: Beautiful tables and colors when Rich library is available
+- **Graceful Fallback**: Plain text output with basic ANSI colors when Rich isn't installed
+- **Comprehensive Data**: Uses both `pmset` for live status and `system_profiler` for detailed health/charger info
+- **Cross-platform**: Works on any macOS system without additional dependencies
 
 ### Help
 
 Show all available options:
 ```bash
-uv run -m batstat --help
-uvx batstat --help
+uv run bat --help
 ```
 
 ## Output Information
 
 The tool displays:
 
-- **Battery Level**: Current charge percentage with status and progress bar
-- **Battery Health**: Current capacity vs design capacity, cycle count
-- **Power Details**: Voltage, current draw, temperature
-- **Time Remaining**: Estimated time until full/empty
-- **Power Adapter**: Charger name, wattage, and connection information when connected to power
-- **System Info**: Battery serial number and last update time
+- **Battery Status**: Current charge percentage, charging state, and time remaining
+- **Battery Health**: Health status (Normal/Fair/Service), cycle count, and capacity details
+- **Power Details**: Voltage and amperage information
+- **Adapter Information**: Charger connection status, wattage, manufacturer, and serial number
+- **Raw Data**: Original `pmset` output for reference
 
-## Simple Output Format
+## Sample Output
 
-The `-s/--simple` option outputs one value per line:
-```
-62.0
-Charging
-95.0%
-245
-30.2�C
-12.39V
-1h 34m
-�
-```
+### With Rich Library (recommended)
 
-Lines represent: percentage, status, health, cycles, temperature, voltage, time remaining, icon.
+The tool displays beautiful formatted tables with color-coded battery levels and health status:
 
-## JSON Output Format
+- 🔋 Battery percentage with color coding (green ≥80%, yellow ≥40%, red <40%)
+- 📊 Detailed battery and adapter information in separate tables
+- 📋 Raw `pmset` output panel for debugging
 
-The `-j/--json` option outputs structured data:
-```json
-{
-  "percentage": 62.0,
-  "health": 95.0,
-  "status": "Charging",
-  "icon": "�",
-  "cycles": 245,
-  "temperature_celsius": 30.25,
-  "temperature_fahrenheit": 86.45,
-  "voltage": 12.395,
-  "amperage": 2155,
-  "time_remaining": "1h 34m",
-  "serial": "BATTERY_SERIAL",
-  "adapter_name": "",
-  "adapter_watts": 0,
-  "charger_name": "61W USB-C Power Adapter",
-  "charger_wattage": 60,
-  "is_charging": true,
-  "external_connected": true,
-  "fully_charged": false,
-  "updated_at": "2025-11-10T14:55:17.380196"
-}
-```
+### Without Rich Library
+
+Clean text output with ANSI color coding and clear formatting.
 
 ## Development
 
@@ -149,37 +103,33 @@ The project uses uv for dependency management. To modify or extend:
 # Install dependencies
 uv sync
 
-# Run the script
-uv run -m batstat
+# Run the script directly
+uv run bat
 
 # Install in development mode
 uv install -e .
+
+# Test without Rich (fallback mode)
+python3 bat.py
 ```
 
 ## Project Structure
 
 ```
 batstat/
-├── src/batstat/          # Python package
-│   ├── __init__.py       # Package initialization
-│   └── batstat.py        # Main script
-├── old/                  # Legacy scripts
-│   ├── batstat           # Original fish script
-│   ├── batstat.fish      # Fish function version
-│   └── batstat.py.backup # Python backup
+├── bat.py                # Main standalone script
 ├── pyproject.toml        # Project configuration
-└── README.md            # This file
+├── scripts/fish/gacp.fish # Git helper utility
+└── README.md             # This file
 ```
 
-## Migration from Fish Script
+## Technical Details
 
-This Python version replaces the original `batstat.fish` script with:
-- More robust error handling
-- Multiple output formats (default, simple, JSON)
-- Better data parsing using both `ioreg` and `system_profiler`
-- Accurate charger wattage detection
-- Package management with uv
-- Type hints and cleaner code structure
-- Proper ASCII formatting for universal compatibility
+This script uses:
 
-The original fish script and early Python versions are preserved in the `old/` directory for reference.
+- **`pmset -g batt`**: Live battery status, percentage, charging state, and time estimates
+- **`system_profiler SPPowerDataType -json`**: Detailed battery health information and charger specifications
+- **Rich Library** (optional): For beautiful terminal output with tables and panels
+- **Graceful degradation**: Full functionality without Rich using basic ANSI colors
+
+The script automatically detects Rich availability and provides the best possible output format for your environment.
