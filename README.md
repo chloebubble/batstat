@@ -57,12 +57,31 @@ uv run bat
 uvx batstat
 ```
 
+### Running with Rich library
+
+For the best visual experience with beautiful tables and colors, run with Rich explicitly:
+
+```bash
+# Temporarily add Rich dependency just for this run:
+uv run --with rich bat
+
+# Or ensure Rich is available in your environment:
+uv sync --with rich
+uv run bat
+```
+
+**Why use `--with rich`?**
+- The script works without Rich (graceful fallback to basic text)
+- Adding `--with rich` gives you beautiful formatted tables and panels
+- Keeps dependencies minimal while allowing enhanced output when desired
+
 ### Features
 
 - **Rich Display**: Beautiful tables and colors when Rich library is available
 - **Graceful Fallback**: Plain text output with basic ANSI colors when Rich isn't installed
 - **Comprehensive Data**: Uses both `pmset` for live status and `system_profiler` for detailed health/charger info
 - **Cross-platform**: Works on any macOS system without additional dependencies
+- **Flexible Dependencies**: Choose between minimal setup or rich visualization
 
 ### Help
 
@@ -100,17 +119,23 @@ Clean text output with ANSI color coding and clear formatting.
 The project uses uv for dependency management. To modify or extend:
 
 ```bash
-# Install dependencies
+# Install base dependencies
 uv sync
 
-# Run the script directly
+# Run with Rich (recommended for development):
+uv run --with rich bat
+
+# Run without Rich (minimal dependencies):
 uv run bat
 
-# Install in development mode
-uv install -e .
-
-# Test without Rich (fallback mode)
+# Test fallback mode without uv:
 python3 bat.py
+
+# Install in development mode with Rich:
+uv install -e . --with rich
+
+# Run tests (if any):
+uv run pytest
 ```
 
 ## Project Structure
