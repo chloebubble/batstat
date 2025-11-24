@@ -15,7 +15,7 @@ import re
 import shutil
 import subprocess
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 # Optional pretty output
 try:
@@ -154,13 +154,18 @@ def extract_battery_and_charger(
     result: Dict[str, Optional[Any]] = {
         "current_capacity": None,
         "max_capacity": None,
+        "design_capacity": None,
         "fully_charged": None,
         "is_charging": None,
         "cycle_count": None,
         "health": None,
+        "health_pct": None,
         "battery_serial": None,
         "voltage_mV": None,
         "amperage_mA": None,
+        "temperature_c": None,
+        "manufacture_date": None,
+        "charging_watts": None,
         "charger_name": None,
         "charger_watts": None,
         "charger_manufacturer": None,
@@ -243,6 +248,166 @@ def extract_battery_and_charger(
         )
 
     return result
+
+
+def _parse_ioreg_value(raw: str) -> Any:
+    """Convert an ioreg value string into Python types."""
+    raw = raw.strip()
+    if raw in {"Yes", "No"}:
+        return raw == "Yes"
+    if raw.startswith('"') and raw.endswith('"'):
+        return raw[1:-1]
+    try:
+        return int(raw)
+    except ValueError:
+        pass
+    try:
+        return float(raw)
+    except ValueError:
+        pass
+    return raw
+
+
+def parse_ioreg_battery() -> Tuple[Dict[str, Any], Optional[str]]:
+    """
+    Parse `ioreg -rd1 -c AppleSmartBattery` output.
+
+    Returns (flat_dict, raw_text). The flat dict only contains top-level key/value
+    pairs plus a few parsed fields extracted with regex from nested dict lines.
+    """
+    out = run_cmd(["ioreg", "-rd1", "-c", "AppleSmartBattery"])
+    if not out:
+        return {}, None
+
+    kv_re = re.compile(r'"([^"]+)"\s*=\s*(.+)')
+    flat: Dict[str, Any] = {}
+
+    # Extract nested values we care about (AdapterDetails watts, ManufactureDate)
+    adapter_watts_match = re.search(
+        r'"(?:AppleRawAdapterDetails|AdapterDetails)"[^\n]*"Watts"=([0-9]+)', out
+    )
+    if adapter_watts_match:
+        flat["AdapterWatts"] = to_int(adapter_watts_match.group(1))
+    manuf_match = re.search(r'ManufactureDate"=([0-9]+)', out)
+    if manuf_match:
+        flat["ManufactureDateRaw"] = manuf_match.group(1)
+
+    for line in out.splitlines():
+        m = kv_re.match(line.strip())
+        if not m:
+            continue
+        key, raw_val = m.groups()
+        flat[key] = _parse_ioreg_value(raw_val)
+
+    return flat, out
+
+
+def _decode_manufacture_date(raw: str) -> Optional[str]:
+    """
+    Attempt to decode battery manufacture date.
+
+    Some batteries expose the date as a 6-byte ASCII integer stored little-endian.
+    If we can turn it into a plausible YYYY-MM-DD, return that string.
+    """
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        return None
+
+    # Build bytes big-endian, then check if all digits.
+    byte_len = max(1, (val.bit_length() + 7) // 8)
+    try:
+        b = val.to_bytes(byte_len, "big")
+    except OverflowError:
+        return None
+    if not all(48 <= x <= 57 for x in b):
+        return None
+
+    s = b.decode()
+    candidates = []
+    if len(s) == 6:  # typical "YYMMDD" or reversed
+        candidates.append(s)
+        candidates.append(s[::-1])
+
+    for cand in candidates:
+        if len(cand) != 6:
+            continue
+        yy = int(cand[:2])
+        mm = int(cand[2:4])
+        dd = int(cand[4:])
+        # Treat yy as 2000-2099
+        year = 2000 + yy
+        try:
+            import datetime
+
+            if not (2000 <= year <= datetime.date.today().year):
+                continue
+            dt = datetime.date(year, mm, dd)
+            return dt.isoformat()
+        except ValueError:
+            continue
+    return None
+
+
+def enrich_with_ioreg(detail: Dict[str, Any]) -> Dict[str, Any]:
+    """Fill in missing metrics using AppleSmartBattery (ioreg)."""
+    io_dict, raw = parse_ioreg_battery()
+    if not io_dict:
+        return detail
+
+    def set_if_absent(key: str, value: Any) -> None:
+        if value is None:
+            return
+        if detail.get(key) is None:
+            detail[key] = value
+        else:
+            detail[key] = value
+
+    design = to_int(io_dict.get("DesignCapacity"))
+    max_cap = to_int(io_dict.get("AppleRawMaxCapacity") or io_dict.get("MaxCapacity"))
+    cur_cap = to_int(
+        io_dict.get("AppleRawCurrentCapacity") or io_dict.get("CurrentCapacity")
+    )
+
+    set_if_absent("design_capacity", design)
+    set_if_absent("max_capacity", max_cap)
+    set_if_absent("current_capacity", cur_cap)
+
+    cycles = to_int(io_dict.get("CycleCount"))
+    set_if_absent("cycle_count", cycles)
+
+    voltage = to_int(io_dict.get("Voltage") or io_dict.get("AppleRawBatteryVoltage"))
+    amperage = to_int(io_dict.get("Amperage") or io_dict.get("InstantAmperage"))
+    set_if_absent("voltage_mV", voltage)
+    set_if_absent("amperage_mA", amperage)
+
+    # Real-time charging power (approx).
+    if voltage is not None and amperage is not None:
+        watts = round(voltage * amperage / 1_000_000, 1)
+        set_if_absent("charging_watts", watts)
+
+    temp_raw = io_dict.get("Temperature") or io_dict.get("VirtualTemperature")
+    if isinstance(temp_raw, (int, float)):
+        # Smart battery spec: temperature in 0.1 Kelvin.
+        temp_c = round((temp_raw / 10) - 273.15, 1)
+        set_if_absent("temperature_c", temp_c)
+
+    # Rated charger wattage if present.
+    set_if_absent("charger_watts", to_int(io_dict.get("AdapterWatts")))
+
+    if max_cap and design:
+        health_pct = round(max_cap / design * 100, 1)
+        set_if_absent("health_pct", health_pct)
+
+    set_if_absent("charger_is_charging", io_dict.get("IsCharging"))
+    set_if_absent("charger_connected", io_dict.get("ExternalConnected"))
+
+    manuf_raw = io_dict.get("ManufactureDateRaw")
+    manuf_date = _decode_manufacture_date(manuf_raw) if manuf_raw else None
+    if manuf_date:
+        set_if_absent("manufacture_date", manuf_date)
+
+    return detail
 
 
 # ---------------- Pretty printing ---------------- #
@@ -329,18 +494,24 @@ def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]
     batt_table.add_row("Time remaining", time_rem)
 
     health = detail.get("health")
-    batt_table.add_row("Health", rich_health_cell(health))
+    health_pct = detail.get("health_pct")
+    health_label = health or "Unknown"
+    if health_pct:
+        health_label = f"{health_label} ({health_pct}%)" if health else f"{health_pct}%"
+    batt_table.add_row("Health", rich_health_cell(health_label))
 
     cycles = detail.get("cycle_count")
     batt_table.add_row("Cycle count", str(cycles) if cycles is not None else "Unknown")
 
     cur = detail.get("current_capacity")
     maxc = detail.get("max_capacity")
-    if cur is not None or maxc is not None:
-        cap_str = f"{cur or '?'} / {maxc or '?'} mAh"
-    else:
-        cap_str = "Unknown"
-    batt_table.add_row("Capacity", cap_str)
+    design = detail.get("design_capacity")
+    if cur is not None:
+        batt_table.add_row("Charge (mAh)", f"{cur} mAh")
+    if maxc is not None:
+        batt_table.add_row("Full charge cap", f"{maxc} mAh")
+    if design is not None:
+        batt_table.add_row("Design capacity", f"{design} mAh")
 
     volt = detail.get("voltage_mV")
     amp = detail.get("amperage_mA")
@@ -351,6 +522,14 @@ def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]
         if amp:
             va.append(f"{amp} mA")
         batt_table.add_row("Voltage/Amperage", ", ".join(va))
+
+    temp_c = detail.get("temperature_c")
+    if temp_c is not None:
+        batt_table.add_row("Temperature", f"{temp_c} °C")
+
+    manuf = detail.get("manufacture_date")
+    if manuf:
+        batt_table.add_row("Manufactured", manuf)
 
     serial = detail.get("battery_serial")
     if serial:
@@ -372,8 +551,15 @@ def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]
     adapter_table.add_row("Connected", boolish_to_str(detail.get("charger_connected")))
     adapter_table.add_row("Charging", boolish_to_str(detail.get("charger_is_charging")))
 
-    watts = detail.get("charger_watts")
-    adapter_table.add_row("Wattage", f"{watts} W" if watts is not None else "Unknown")
+    watts_rated = detail.get("charger_watts")
+    adapter_table.add_row(
+        "Adapter watts", f"{watts_rated} W" if watts_rated is not None else "Unknown"
+    )
+
+    watts_live = detail.get("charging_watts")
+    adapter_table.add_row(
+        "Charging power", f"{watts_live} W" if watts_live is not None else "Unknown"
+    )
 
     name = detail.get("charger_name")
     if name:
@@ -408,14 +594,24 @@ def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) ->
     print(f"Charge           : {pct}")
     print(f"Time remaining   : {time_rem}")
 
-    print(f"Health           : {rich_health_cell(detail.get('health'))}")
+    health = detail.get("health")
+    health_pct = detail.get("health_pct")
+    health_label = health or "Unknown"
+    if health_pct:
+        health_label = f"{health_label} ({health_pct}%)" if health else f"{health_pct}%"
+    print(f"Health           : {rich_health_cell(health_label)}")
     cycles = detail.get("cycle_count")
     print(f"Cycle count      : {cycles or 'Unknown'}")
 
     cur = detail.get("current_capacity")
     maxc = detail.get("max_capacity")
-    if cur is not None or maxc is not None:
-        print(f"Capacity         : {cur or '?'} / {maxc or '?'} mAh")
+    design = detail.get("design_capacity")
+    if cur is not None:
+        print(f"Charge (mAh)     : {cur} mAh")
+    if maxc is not None:
+        print(f"Full charge cap  : {maxc} mAh")
+    if design is not None:
+        print(f"Design capacity  : {design} mAh")
 
     volt = detail.get("voltage_mV")
     amp = detail.get("amperage_mA")
@@ -427,6 +623,14 @@ def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) ->
             vs.append(f"{amp} mA")
         print(f"Voltage/Amperage : {', '.join(vs)}")
 
+    temp_c = detail.get("temperature_c")
+    if temp_c is not None:
+        print(f"Temperature      : {temp_c} °C")
+
+    manuf = detail.get("manufacture_date")
+    if manuf:
+        print(f"Manufactured     : {manuf}")
+
     serial = detail.get("battery_serial")
     if serial:
         print(f"Battery serial   : {serial}")
@@ -435,8 +639,11 @@ def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) ->
     print("─" * 50)
     print(f"Connected        : {boolish_to_str(detail.get('charger_connected'))}")
     print(f"Charging         : {boolish_to_str(detail.get('charger_is_charging'))}")
-    watts = detail.get("charger_watts")
-    print(f"Wattage          : {watts or 'Unknown'}")
+    watts_rated = detail.get("charger_watts")
+    print(f"Adapter watts    : {watts_rated or 'Unknown'}")
+    watts_live = detail.get("charging_watts")
+    if watts_live is not None:
+        print(f"Charging power   : {watts_live} W")
     name = detail.get("charger_name")
     if name:
         print(f"Name             : {name}")
@@ -461,6 +668,7 @@ def main() -> None:
     pmset_info = parse_pmset()
     sp = get_sppower_json()
     detail = extract_battery_and_charger(sp) if sp else {}
+    detail = enrich_with_ioreg(detail)
 
     if HAS_RICH:
         print_with_rich(pmset_info, detail)
