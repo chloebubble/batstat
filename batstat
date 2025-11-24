@@ -1,0 +1,4 @@
+function batstat
+    cd ~/devstuff/batstat/
+    uv run --with rich bat
+end
