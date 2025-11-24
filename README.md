@@ -54,7 +54,7 @@ Display full battery status with colors and formatting:
 uv run bat
 
 # After editable install:
-uvx batstat
+uvx bat
 ```
 
 ### Running with Rich library
@@ -79,7 +79,7 @@ uv run bat
 
 - **Rich Display**: Beautiful tables and colors when Rich library is available
 - **Graceful Fallback**: Plain text output with basic ANSI colors when Rich isn't installed
-- **Comprehensive Data**: Uses both `pmset` for live status and `system_profiler` for detailed health/charger info
+- **Comprehensive Data**: Combines `pmset`, `system_profiler`, and `ioreg` to fill gaps (design/full/charge mAh, health %, live watts, temperature)
 - **Cross-platform**: Works on any macOS system without additional dependencies
 - **Flexible Dependencies**: Choose between minimal setup or rich visualization
 
@@ -95,9 +95,9 @@ uv run bat --help
 The tool displays:
 
 - **Battery Status**: Current charge percentage, charging state, and time remaining
-- **Battery Health**: Health status (Normal/Fair/Service), cycle count, and capacity details
-- **Power Details**: Voltage and amperage information
-- **Adapter Information**: Charger connection status, wattage, manufacturer, and serial number
+- **Battery Health**: Health text plus percent of design capacity, cycle count, current/full/design capacity (mAh)
+- **Power Details**: Voltage, amperage, live charging power in watts, and battery temperature (°C)
+- **Adapter Information**: Charger connection status, rated wattage, manufacturer, and serial number
 - **Raw Data**: Original `pmset` output for reference
 
 ## Sample Output
@@ -108,6 +108,7 @@ The tool displays beautiful formatted tables with color-coded battery levels and
 
 - 🔋 Battery percentage with color coding (green ≥80%, yellow ≥40%, red <40%)
 - 📊 Detailed battery and adapter information in separate tables
+- 🧮 Health % based on full vs design capacity, plus live charging watts and temperature
 - 📋 Raw `pmset` output panel for debugging
 
 ### Without Rich Library
@@ -142,10 +143,11 @@ uv run pytest
 
 ```
 batstat/
-├── bat.py                # Main standalone script
-├── pyproject.toml        # Project configuration
-├── scripts/fish/gacp.fish # Git helper utility
-└── README.md             # This file
+├── bat.py                  # Main CLI + battery logic (entrypoint: bat:main)
+├── batstat                 # Fish helper to run `uv run --with rich bat`
+├── pyproject.toml          # Project configuration (uv / setuptools metadata)
+├── README.md               # This file
+└── uv.lock                 # Locked dependency versions (tracked)
 ```
 
 ## Technical Details
@@ -153,7 +155,8 @@ batstat/
 This script uses:
 
 - **`pmset -g batt`**: Live battery status, percentage, charging state, and time estimates
-- **`system_profiler SPPowerDataType -json`**: Detailed battery health information and charger specifications
+- **`system_profiler SPPowerDataType -json`**: Battery health info and charger specifications
+- **`ioreg -rd1 -c AppleSmartBattery`**: Real-time metrics (charge/full/design capacity, voltage, amperage, temperature, live watts)
 - **Rich Library** (optional): For beautiful terminal output with tables and panels
 - **Graceful degradation**: Full functionality without Rich using basic ANSI colors
 
