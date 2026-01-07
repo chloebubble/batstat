@@ -90,6 +90,11 @@ Show all available options:
 uv run bat --help
 ```
 
+Show raw `pmset` output for debugging:
+```bash
+uv run bat --raw
+```
+
 ## Output Information
 
 The tool displays:
@@ -98,7 +103,7 @@ The tool displays:
 - **Battery Health**: Health text plus percent of design capacity, cycle count, current/full/design capacity (mAh)
 - **Power Details**: Voltage, amperage, live charging power in watts, and battery temperature (°C)
 - **Adapter Information**: Charger connection status, rated wattage, manufacturer, and serial number
-- **Raw Data**: Original `pmset` output for reference
+- **Raw Data**: Original `pmset` output for reference (use `--raw`)
 
 ## Sample Output
 
@@ -109,7 +114,7 @@ The tool displays beautiful formatted tables with color-coded battery levels and
 - 🔋 Battery percentage with color coding (green ≥80%, yellow ≥40%, red <40%)
 - 📊 Detailed battery and adapter information in separate tables
 - 🧮 Health % based on full vs design capacity, plus live charging watts and temperature
-- 📋 Raw `pmset` output panel for debugging
+- 📋 Raw `pmset` output panel for debugging (use `--raw`)
 
 ### Without Rich Library
 

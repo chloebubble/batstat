@@ -1,4 +1,6 @@
 function batstat
+    set -f a (pwd)
     cd ~/devstuff/batstat/
-    uv run --with rich bat
+    uv run --with rich bat $argv
+    cd (realpath $a)
 end
