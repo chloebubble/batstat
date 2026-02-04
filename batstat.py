@@ -962,6 +962,17 @@ def print_plain(
         print(raw)
 
 
+def render_output(
+    pmset_info: Dict[str, Optional[str]],
+    detail: Dict[str, Any],
+    show_raw: bool,
+) -> None:
+    if HAS_RICH:
+        print_with_rich(pmset_info, detail, show_raw)
+    else:
+        print_plain(pmset_info, detail, show_raw)
+
+
 def main() -> None:
     if platform.system() != "Darwin":
         print("This script is intended to run on macOS.")
@@ -980,6 +991,11 @@ def main() -> None:
         "--ios",
         action="store_true",
         help="Read battery info from a USB-connected iOS device (requires libimobiledevice).",
+    )
+    parser.add_argument(
+        "--no-ios",
+        action="store_true",
+        help="Disable auto-detection of USB-connected iOS devices.",
     )
     parser.add_argument(
         "--ios-udid",
@@ -1007,10 +1023,7 @@ def main() -> None:
         device_name = get_ios_device_name(udid)
         pmset_info, detail = build_ios_views(data, device_name, udid, raw)
 
-        if HAS_RICH:
-            print_with_rich(pmset_info, detail, args.raw)
-        else:
-            print_plain(pmset_info, detail, args.raw)
+        render_output(pmset_info, detail, args.raw)
         return
 
     pmset_info = parse_pmset()
@@ -1018,10 +1031,27 @@ def main() -> None:
     detail = extract_battery_and_charger(sp) if sp else {}
     detail = enrich_with_ioreg(detail)
 
-    if HAS_RICH:
-        print_with_rich(pmset_info, detail, args.raw)
-    else:
-        print_plain(pmset_info, detail, args.raw)
+    render_output(pmset_info, detail, args.raw)
+
+    if args.no_ios:
+        return
+
+    devices = list_ios_devices()
+    if not devices:
+        return
+
+    for udid in devices:
+        data, raw, err = get_ios_battery_info(udid)
+        if err or data is None:
+            print(
+                f"Warning: unable to read iOS battery info for {udid}: {err or 'unknown error'}",
+                file=sys.stderr,
+            )
+            continue
+        device_name = get_ios_device_name(udid)
+        pmset_info, detail = build_ios_views(data, device_name, udid, raw)
+        print()
+        render_output(pmset_info, detail, args.raw)
 
 
 if __name__ == "__main__":

@@ -57,6 +57,8 @@ Show all available options:
 uv run batstat --help
 ```
 
+By default, `batstat` will also show any USB-connected iOS devices it can detect.
+
 Show raw output for debugging:
 ```bash
 uv run batstat --raw
@@ -74,6 +76,12 @@ Show the raw iOS battery payload:
 
 ```bash
 uv run batstat --ios --raw
+```
+
+Disable auto-detection of USB-connected iOS devices:
+
+```bash
+uv run batstat --no-ios
 ```
 
 If you have multiple devices connected, pass a UDID:
