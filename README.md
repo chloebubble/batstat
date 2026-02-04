@@ -7,6 +7,8 @@ A macOS CLI tool for detailed battery health and power status.
 - macOS
 - Python 3.11+
 - [uv](https://github.com/astral-sh/uv)
+- Optional (for iOS USB mode): `libimobiledevice` tools (`ideviceinfo`, `idevice_id`)
+  - Install with Homebrew: `brew install libimobiledevice`
 
 ## Installation
 
@@ -46,6 +48,8 @@ uv run batstat
 
 Data is collected from `pmset`, `system_profiler`, and `ioreg`.
 
+With `--ios`, it reads available battery stats from a USB-connected iPhone/iPad.
+
 ## Output
 
 Show all available options:
@@ -53,9 +57,29 @@ Show all available options:
 uv run batstat --help
 ```
 
-Show raw `pmset` output for debugging:
+Show raw output for debugging:
 ```bash
 uv run batstat --raw
+```
+
+### iOS over USB
+
+Read battery statistics from a USB-connected iPhone/iPad:
+
+```bash
+uv run batstat --ios
+```
+
+Show the raw iOS battery payload:
+
+```bash
+uv run batstat --ios --raw
+```
+
+If you have multiple devices connected, pass a UDID:
+
+```bash
+uv run batstat --ios --ios-udid <udid>
 ```
 
 ## Output Information
@@ -66,7 +90,10 @@ The tool displays:
 - **Battery Health**: Health text plus percent of design capacity, cycle count, current/full/design capacity (mAh)
 - **Power Details**: Voltage, amperage, live charging power in watts, and battery temperature (°C)
 - **Adapter Information**: Charger connection status, rated wattage, manufacturer, and serial number
-- **Raw Data**: Original `pmset` output for reference (use `--raw`)
+- **Raw Data**: Original data source output for reference (use `--raw`)
+
+When using `--ios`, it will show the iOS device battery percentage, charging state,
+and any additional fields the device exposes (capacity, cycles, voltage, etc.).
 
 ## Sample Output
 
@@ -125,6 +152,8 @@ This script uses:
 - **`pmset -g batt`**: Live battery status, percentage, charging state, and time estimates
 - **`system_profiler SPPowerDataType -json`**: Battery health info and charger specifications
 - **`ioreg -rd1 -c AppleSmartBattery`**: Real-time metrics (charge/full/design capacity, voltage, amperage, temperature, live watts)
+- **`ideviceinfo -q com.apple.mobile.battery`**: iOS battery stats over USB (optional)
+- **`idevice_id -l`**: List connected iOS devices (optional)
 - **Rich Library** (optional): For beautiful terminal output with tables and panels
 - **Graceful degradation**: Full functionality without Rich using basic ANSI colors
 

@@ -1,7 +1,7 @@
 [project]
 name = "batstat"
 version = "0.2.0"
-description = "A beautiful battery status display for macOS using pmset and system_profiler"
+description = "A beautiful battery status display for macOS and USB-connected iOS devices"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
