@@ -51,10 +51,10 @@ Display full battery status with colors and formatting:
 
 ```bash
 # From the repo (no install):
-uv run bat
+uv run batstat
 
 # After editable install:
-uvx bat
+uvx batstat
 ```
 
 ### Running with Rich library
@@ -63,11 +63,11 @@ For the best visual experience with beautiful tables and colors, run with Rich e
 
 ```bash
 # Temporarily add Rich dependency just for this run:
-uv run --with rich bat
+uv run --with rich batstat
 
 # Or ensure Rich is available in your environment:
 uv sync --with rich
-uv run bat
+uv run batstat
 ```
 
 **Why use `--with rich`?**
@@ -87,7 +87,12 @@ uv run bat
 
 Show all available options:
 ```bash
-uv run bat --help
+uv run batstat --help
+```
+
+Show raw `pmset` output for debugging:
+```bash
+uv run batstat --raw
 ```
 
 ## Output Information
@@ -98,7 +103,7 @@ The tool displays:
 - **Battery Health**: Health text plus percent of design capacity, cycle count, current/full/design capacity (mAh)
 - **Power Details**: Voltage, amperage, live charging power in watts, and battery temperature (°C)
 - **Adapter Information**: Charger connection status, rated wattage, manufacturer, and serial number
-- **Raw Data**: Original `pmset` output for reference
+- **Raw Data**: Original `pmset` output for reference (use `--raw`)
 
 ## Sample Output
 
@@ -109,7 +114,7 @@ The tool displays beautiful formatted tables with color-coded battery levels and
 - 🔋 Battery percentage with color coding (green ≥80%, yellow ≥40%, red <40%)
 - 📊 Detailed battery and adapter information in separate tables
 - 🧮 Health % based on full vs design capacity, plus live charging watts and temperature
-- 📋 Raw `pmset` output panel for debugging
+- 📋 Raw `pmset` output panel for debugging (use `--raw`)
 
 ### Without Rich Library
 
@@ -124,13 +129,13 @@ The project uses uv for dependency management. To modify or extend:
 uv sync
 
 # Run with Rich (recommended for development):
-uv run --with rich bat
+uv run --with rich batstat
 
 # Run without Rich (minimal dependencies):
-uv run bat
+uv run batstat
 
 # Test fallback mode without uv:
-python3 bat.py
+python3 batstat.py
 
 # Install in development mode with Rich:
 uv install -e . --with rich
@@ -143,8 +148,8 @@ uv run pytest
 
 ```
 batstat/
-├── bat.py                  # Main CLI + battery logic (entrypoint: bat:main)
-├── batstat                 # Fish helper to run `uv run --with rich bat`
+├── batstat.py              # Main CLI + battery logic (entrypoint: batstat:main)
+├── batstat                 # Fish helper to run `uv run --with rich batstat`
 ├── pyproject.toml          # Project configuration (uv / setuptools metadata)
 ├── README.md               # This file
 └── uv.lock                 # Locked dependency versions (tracked)

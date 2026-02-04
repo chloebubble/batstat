@@ -9,7 +9,7 @@ dependencies = [
 ]
 
 [project.scripts]
-bat = "bat:main"
+batstat = "batstat:main"
 
 [tool.uv.sources]
 

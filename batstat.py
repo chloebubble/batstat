@@ -9,6 +9,7 @@ Pretty battery / charger overview for macOS.
 Tested layout on macOS; key names are based on SPPowerDataType JSON schema.
 """
 
+import argparse
 import json
 import platform
 import re
@@ -126,6 +127,16 @@ def to_int(v: Any) -> Optional[int]:
         return int(v)
     except (TypeError, ValueError):
         return None
+
+
+def to_int_signed_64(v: Any) -> Optional[int]:
+    """Convert to signed 64-bit int when ioreg exposes unsigned wraparound."""
+    val = to_int(v)
+    if val is None:
+        return None
+    if val >= 2**63:
+        return val - 2**64
+    return val
 
 
 def boolish_to_str(v: Any) -> str:
@@ -377,12 +388,22 @@ def enrich_with_ioreg(detail: Dict[str, Any]) -> Dict[str, Any]:
     set_if_absent("cycle_count", cycles)
 
     voltage = to_int(io_dict.get("Voltage") or io_dict.get("AppleRawBatteryVoltage"))
-    amperage = to_int(io_dict.get("Amperage") or io_dict.get("InstantAmperage"))
+    amperage = to_int_signed_64(
+        io_dict.get("Amperage") or io_dict.get("InstantAmperage")
+    )
     set_if_absent("voltage_mV", voltage)
     set_if_absent("amperage_mA", amperage)
 
-    # Real-time charging power (approx).
-    if voltage is not None and amperage is not None:
+    set_if_absent("charger_is_charging", io_dict.get("IsCharging"))
+    set_if_absent("charger_connected", io_dict.get("ExternalConnected"))
+
+    # Real-time charging power (approx). Only show when charging/connected.
+    if (
+        voltage is not None
+        and amperage is not None
+        and amperage > 0
+        and (detail.get("charger_is_charging") or detail.get("charger_connected"))
+    ):
         watts = round(voltage * amperage / 1_000_000, 1)
         set_if_absent("charging_watts", watts)
 
@@ -398,9 +419,6 @@ def enrich_with_ioreg(detail: Dict[str, Any]) -> Dict[str, Any]:
     if max_cap and design:
         health_pct = round(max_cap / design * 100, 1)
         set_if_absent("health_pct", health_pct)
-
-    set_if_absent("charger_is_charging", io_dict.get("IsCharging"))
-    set_if_absent("charger_connected", io_dict.get("ExternalConnected"))
 
     manuf_raw = io_dict.get("ManufactureDateRaw")
     manuf_date = _decode_manufacture_date(manuf_raw) if manuf_raw else None
@@ -462,7 +480,11 @@ def rich_health_cell(health: Optional[str]) -> Any:
             return yellow(health)
 
 
-def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) -> None:
+def print_with_rich(
+    pmset_info: Dict[str, Optional[str]],
+    detail: Dict[str, Any],
+    show_raw: bool,
+) -> None:
     src = pmset_info.get("source") or "Unknown"
     status = pmset_info.get("status") or "Unknown"
     time_rem = pmset_info.get("time_remaining") or "Unknown"
@@ -553,12 +575,12 @@ def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]
 
     watts_rated = detail.get("charger_watts")
     adapter_table.add_row(
-        "Adapter watts", f"{watts_rated} W" if watts_rated is not None else "Unknown"
+        "Adapter watts", f"{watts_rated} W" if watts_rated is not None else "N/A"
     )
 
     watts_live = detail.get("charging_watts")
     adapter_table.add_row(
-        "Charging power", f"{watts_live} W" if watts_live is not None else "Unknown"
+        "Charging power", f"{watts_live} W" if watts_live is not None else "N/A"
     )
 
     name = detail.get("charger_name")
@@ -575,13 +597,18 @@ def print_with_rich(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]
 
     console.print(adapter_table)
 
-    # Raw pmset panel at the bottom
-    raw = pmset_info.get("raw") or "pmset output not available."
-    console.print()
-    console.print(Panel.fit(raw, title="Raw pmset", box=box.SQUARE))
+    if show_raw:
+        # Raw pmset panel at the bottom
+        raw = pmset_info.get("raw") or "pmset output not available."
+        console.print()
+        console.print(Panel.fit(raw, title="Raw pmset", box=box.SQUARE))
 
 
-def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) -> None:
+def print_plain(
+    pmset_info: Dict[str, Optional[str]],
+    detail: Dict[str, Any],
+    show_raw: bool,
+) -> None:
     print(bold("Battery & Power"))
     print("─" * 50)
     src = pmset_info.get("source") or "Unknown"
@@ -640,10 +667,12 @@ def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) ->
     print(f"Connected        : {boolish_to_str(detail.get('charger_connected'))}")
     print(f"Charging         : {boolish_to_str(detail.get('charger_is_charging'))}")
     watts_rated = detail.get("charger_watts")
-    print(f"Adapter watts    : {watts_rated or 'Unknown'}")
+    print(f"Adapter watts    : {watts_rated} W" if watts_rated is not None else "Adapter watts    : N/A")
     watts_live = detail.get("charging_watts")
     if watts_live is not None:
         print(f"Charging power   : {watts_live} W")
+    else:
+        print("Charging power   : N/A")
     name = detail.get("charger_name")
     if name:
         print(f"Name             : {name}")
@@ -654,10 +683,11 @@ def print_plain(pmset_info: Dict[str, Optional[str]], detail: Dict[str, Any]) ->
     if cserial:
         print(f"Serial           : {cserial}")
 
-    print("\n" + bold("Raw pmset"))
-    print("─" * 50)
-    raw = pmset_info.get("raw") or "pmset output not available."
-    print(raw)
+    if show_raw:
+        print("\n" + bold("Raw pmset"))
+        print("─" * 50)
+        raw = pmset_info.get("raw") or "pmset output not available."
+        print(raw)
 
 
 def main() -> None:
@@ -665,15 +695,26 @@ def main() -> None:
         print("This script is intended to run on macOS.")
         sys.exit(1)
 
+    parser = argparse.ArgumentParser(
+        description="Pretty battery / charger overview for macOS."
+    )
+    parser.add_argument(
+        "-r",
+        "--raw",
+        action="store_true",
+        help="Show raw `pmset -g batt` output.",
+    )
+    args = parser.parse_args()
+
     pmset_info = parse_pmset()
     sp = get_sppower_json()
     detail = extract_battery_and_charger(sp) if sp else {}
     detail = enrich_with_ioreg(detail)
 
     if HAS_RICH:
-        print_with_rich(pmset_info, detail)
+        print_with_rich(pmset_info, detail, args.raw)
     else:
-        print_plain(pmset_info, detail)
+        print_plain(pmset_info, detail, args.raw)
 
 
 if __name__ == "__main__":
